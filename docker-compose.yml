@@ -1,0 +1,105 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment_orchestration
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Three identical API replicas. Defined explicitly (rather than via
+  # `docker-compose up --scale`) so Nginx's upstream block can list fixed,
+  # predictable hostnames -- plain Docker Compose (no Swarm) doesn't give
+  # you a load-balanced virtual IP for scaled replicas, so explicit
+  # services is the reliable way to do this.
+  #
+  # Each still exposes its own port directly (4001/4002/4003) purely so
+  # you can debug a single instance in isolation if something looks off --
+  # the app itself should always be accessed through Nginx on :8080.
+  api1:
+    build: ./backend
+    ports:
+      - "4001:4000"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/payment_orchestration
+      REDIS_URL: redis://redis:6379
+      PORT: 4000
+      INSTANCE_ID: api1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  api2:
+    build: ./backend
+    ports:
+      - "4002:4000"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/payment_orchestration
+      REDIS_URL: redis://redis:6379
+      PORT: 4000
+      INSTANCE_ID: api2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  api3:
+    build: ./backend
+    ports:
+      - "4003:4000"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/payment_orchestration
+      REDIS_URL: redis://redis:6379
+      PORT: 4000
+      INSTANCE_ID: api3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  # The load balancer -- this is the only address the frontend and your
+  # demo script should hit. Round-robins across api1/api2/api3.
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api1
+      - api2
+      - api3
+
+volumes:
+  pg_data:
