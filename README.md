@@ -86,138 +86,31 @@ See `backend/migrations/*.sql` for the data model and `backend/src/services/stat
 
 ---
 
-```mermaid
-classDiagram
-
-    class TransactionService {
-        +createTransaction()
-        +getTransaction()
-        +processPayment()
-    }
-
-    class PaymentOrchestrationService {
-        +orchestratePayment()
-        +executeGatewayAttempt()
-        +handleGatewayFailure()
-    }
-
-    class IdempotencyService {
-        +checkKey()
-        +acquireLock()
-        +storeResult()
-    }
-
-    class StateMachine {
-        +canTransition()
-        +transition()
-    }
-
-    class RoutingService {
-        +getRoutingConfig()
-        +updateRoutingConfig()
-        +selectGateway()
-    }
-
-    class GatewayRegistry {
-        +getGateway()
-        +getAllGateways()
-    }
-
-    class MockGateway {
-        +charge()
-        +refund()
-        +simulateFailure()
-    }
-
-    class MockGatewayB {
-        +charge()
-        +refund()
-        +simulateFailure()
-    }
-
-    class GatewayHealthService {
-        +recordSuccess()
-        +recordFailure()
-        +getHealth()
-    }
-
-    class RetryUtility {
-        +executeWithRetry()
-        +calculateBackoff()
-    }
-
-    class WebhookService {
-        +createEvent()
-        +signPayload()
-        +dispatchWebhook()
-    }
-
-    class RefundService {
-        +createRefund()
-        +validateRefund()
-    }
-
-    TransactionService --> IdempotencyService
-    TransactionService --> PaymentOrchestrationService
-    TransactionService --> StateMachine
-
-    PaymentOrchestrationService --> RoutingService
-    PaymentOrchestrationService --> RetryUtility
-    PaymentOrchestrationService --> GatewayRegistry
-    PaymentOrchestrationService --> GatewayHealthService
-    PaymentOrchestrationService --> WebhookService
-
-    RoutingService --> GatewayRegistry
-    GatewayRegistry --> MockGateway
-    GatewayRegistry --> MockGatewayB
-
-    PaymentOrchestrationService --> RefundService
-
-    MockGateway --> GatewayHealthService
-    MockGatewayB --> GatewayHealthService
-```
----
-
 # 🧩 System Design Concepts
 
 ## Horizontal Scaling
 
 PayFlux uses a horizontally scaled API architecture with **three Express API instances behind an Nginx load balancer**.
 
-```mermaid
-flowchart TB
-    R["Incoming Requests"]
-    N["Nginx<br/>Load Balancer"]
-
-    subgraph APIS[" "]
-        direction LR
-        A1["API #1<br/>(stateless)"]
-        A2["API #2<br/>(stateless)"]
-        A3["API #3<br/>(stateless)"]
-    end
-
-    S["Shared State"]
-
-    subgraph DATA[" "]
-        direction LR
-        REDIS[("Redis")]
-        PG[("PostgreSQL")]
-    end
-
-    R --> N
-    N --> A1
-    N --> A2
-    N --> A3
-
-    A1 --> S
-    A2 --> S
-    A3 --> S
-
-    S --> REDIS
-    S --> PG
-
-    A1 ~~~ A2
-    A2 ~~~ A3
+```text
+                    Incoming Requests
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │    Nginx    │
+                    │Load Balancer│
+                    └──────┬──────┘
+                           │
+              ┌────────────┼────────────┐
+              ▼            ▼            ▼
+          API #1        API #2        API #3
+        (stateless)   (stateless)   (stateless)
+              │            │            │
+              └────────────┼────────────┘
+                           │
+                    Shared State
+                     /          \
+                  Redis       PostgreSQL
 ```
 
 Instead of scaling a single API server vertically, additional API instances can be added to handle increased request volume.
@@ -930,27 +823,20 @@ Idempotency-Key
 # 🛠️ Tech Stack
 
 ### Backend
-
-* Node.js
-* Express
-* PostgreSQL
-* Redis
-* REST APIs
+Node.js · Express · PostgreSQL · Redis · REST APIs
 
 ### Frontend
-
-* React
-* React Router
+React · React Router
 
 ### Infrastructure
-
-* Docker
-* Docker Compose
-* Nginx
+Docker · Docker Compose · Nginx
 
 ### Testing
+Jest
 
-* Jest
+### Technologies
+
+[![Tech Stack](https://skillicons.dev/icons?i=nodejs,express,postgres,redis,react,docker,nginx,jest)](https://skillicons.dev)
 
 ---
 
