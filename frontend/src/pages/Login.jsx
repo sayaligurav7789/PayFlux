@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export function Login() {
-  const [email, setEmail] = useState('admin@ledger.dev');
+  const [email, setEmail] = useState('admin@payflux.dev');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -106,7 +106,7 @@ export function Login() {
 
           {/* Brand */}
           <div className="login-brand">
-            Ledger
+            PayFlux
           </div>
 
           <div className="login-subtitle">
@@ -175,7 +175,7 @@ export function Login() {
           <div className="demo-credentials">
             Demo credentials:
             <br />
-            <span>admin@ledger.dev</span>
+            <span>admin@payflux.dev</span>
             {' / '}
             <span>password123</span>
           </div>

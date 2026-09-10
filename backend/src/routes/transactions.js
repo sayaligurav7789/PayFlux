@@ -4,8 +4,7 @@ const router = express.Router();
 const idempotencyService = require('../services/idempotencyService');
 const transactionService = require('../services/transactionService');
 const webhookService = require('../services/webhookService');
-const mockGateway = require('../services/mockGateway');
-const { retryWithBackoff } = require('../utils/retry');
+const paymentOrchestrationService = require('../services/paymentOrchestrationService');
 const { isTerminal } = require('../services/stateMachine');
 
 /**
@@ -20,7 +19,10 @@ const { isTerminal } = require('../services/stateMachine');
  *   2. Insert the transaction row. The Postgres UNIQUE constraint is the
  *      backstop here -- if Redis somehow let a duplicate through, this
  *      insert throws and we treat it as already-processed.
- *   3. Move initiated -> pending, then call the mock gateway with retry.
+ *   3. Move initiated -> pending, then attempt the charge via the
+ *      routing engine: it picks a gateway (round robin / weighted /
+ *      health-based), retries with backoff, and automatically fails
+ *      over to the other gateway if the first one keeps failing.
  *   4. On terminal state, fire a webhook (fire-and-forget from the
  *      caller's perspective -- doesn't block the response).
  *   5. Cache the final response against the idempotency key.
@@ -75,24 +77,23 @@ router.post('/', async (req, res, next) => {
     txn = await transactionService.applyEvent(txn.id, 'start', 'processing_started');
 
     try {
-      const { gatewayReference } = await retryWithBackoff(
-        () => mockGateway.charge({ amount, currency }),
-        {
-          maxAttempts: 5,
-          baseDelayMs: 500,
-          isRetryable: (err) => err.retryable === true,
-          onRetry: async (attempt) => {
-            await transactionService.incrementRetryCount(txn.id);
-          },
-        }
+      const { gatewayReference, gatewayUsed } = await paymentOrchestrationService.chargeWithFailover(
+        txn,
+        { amount, currency }
       );
 
       await require('../config/db').pool.query(
-        `UPDATE transactions SET gateway_reference = $1 WHERE id = $2`,
-        [gatewayReference, txn.id]
+        `UPDATE transactions SET gateway_reference = $1, gateway_used = $2 WHERE id = $3`,
+        [gatewayReference, gatewayUsed, txn.id]
       );
-      txn = await transactionService.applyEvent(txn.id, 'gatewaySuccess', 'gateway_charge_succeeded');
+      txn = await transactionService.applyEvent(txn.id, 'gatewaySuccess', `Processed via ${gatewayUsed}`);
     } catch (gatewayErr) {
+      if (gatewayErr.lastGatewayId) {
+        await require('../config/db').pool.query(
+          `UPDATE transactions SET gateway_used = $1 WHERE id = $2`,
+          [gatewayErr.lastGatewayId, txn.id]
+        );
+      }
       txn = await transactionService.applyEvent(txn.id, 'gatewayFailure', gatewayErr.message);
     }
 
@@ -180,14 +181,19 @@ router.get('/:id/webhooks', async (req, res, next) => {
   }
 });
 
-/** POST /transactions/:id/refund */
+/** POST /transactions/:id/refund -- amount is optional; omitted means "refund what's left". */
 router.post('/:id/refund', async (req, res, next) => {
   try {
     const txn = await transactionService.getTransaction(req.params.id);
     if (!txn || txn.merchant_id !== req.merchant.id) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
-    const updated = await transactionService.applyEvent(req.params.id, 'refund', req.body.reason || 'merchant_requested');
+    const { amount, reason } = req.body;
+    const updated = await transactionService.refundTransaction(
+      req.params.id,
+      amount,
+      reason || 'merchant_requested'
+    );
     res.json({ transaction: updated });
   } catch (err) {
     next(err);

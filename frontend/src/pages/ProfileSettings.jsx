@@ -4,7 +4,7 @@ export function ProfileSettings() {
   const { user } = useAuth();
 
   const name = user?.name || 'Admin';
-  const email = user?.email || 'admin@ledger.dev';
+  const email = user?.email || 'admin@payflux.dev';
   const role = user?.role || 'Administrator';
 
   return (
@@ -141,7 +141,7 @@ export function ProfileSettings() {
 
         <div className="profile-header">
           <h1>Profile Settings</h1>
-          <p>Manage your Ledger account information</p>
+          <p>Manage your PayFlux account information</p>
         </div>
 
         <div className="profile-card">
@@ -228,7 +228,7 @@ export function ProfileSettings() {
           </div>
 
           <div className="profile-info-text">
-            Your account is used to access Ledger payment operations,
+            Your account is used to access PayFlux payment operations,
             transaction monitoring, gateway routing, webhooks and system
             health information.
           </div>

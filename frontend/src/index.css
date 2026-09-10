@@ -1,5 +1,5 @@
 :root {
-  /* Base palette -- near-black ledger background, not pure black */
+  /* Base palette -- near-black payflux background, not pure black */
   --bg: #0e1210;
   --surface: #151a17;
   --surface-hover: #1b211d;
@@ -21,6 +21,8 @@
   --status-failed-bg: rgba(226, 87, 76, 0.12);
   --status-refunded: #8b7fd6;
   --status-refunded-bg: rgba(139, 127, 214, 0.12);
+  --status-partially_refunded: #c9a24d;
+  --status-partially_refunded-bg: rgba(201, 162, 77, 0.12);
 
   --font-sans: 'Inter', -apple-system, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -218,6 +220,10 @@ tbody tr:hover {
 .badge-refunded {
   color: var(--status-refunded);
   background: var(--status-refunded-bg);
+}
+.badge-partially_refunded {
+  color: var(--status-partially_refunded);
+  background: var(--status-partially_refunded-bg);
 }
 
 /* Filter pills */

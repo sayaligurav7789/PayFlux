@@ -4,6 +4,46 @@ import { api } from '../api';
 import { StatusBadge } from '../components/StatusBadge';
 import { formatAmount, formatTime } from '../utils/format';
 
+const GATEWAY_LABELS = { gateway_a: 'Gateway A', gateway_b: 'Gateway B' };
+
+/**
+ * Orchestration events (retries, routing decisions, failovers) are
+ * logged as self-transitions (from_status === to_status) so they show
+ * up on the same timeline as real state changes without a schema
+ * change. This classifies each event so the timeline can visually tell
+ * "the payment moved to a new state" apart from "here's what happened
+ * while it was getting there".
+ */
+function classifyEvent(e) {
+  const reason = e.reason || '';
+  if (e.from_status !== e.to_status) return { kind: 'transition' };
+  if (reason.startsWith('Routing decision')) return { kind: 'routing' };
+  if (reason.startsWith('Failover triggered')) return { kind: 'failover_triggered' };
+  if (reason.startsWith('Failover succeeded')) return { kind: 'failover_succeeded' };
+  if (reason.includes('attempt failed')) return { kind: 'attempt_failed' };
+  if (reason.includes('attempt succeeded')) return { kind: 'attempt_succeeded' };
+  return { kind: 'note' };
+}
+
+const DOT_COLOR_BY_KIND = {
+  transition: 'var(--status-success)',
+  routing: 'var(--text-muted)',
+  attempt_failed: 'var(--status-failed)',
+  attempt_succeeded: 'var(--status-success)',
+  failover_triggered: 'var(--status-partially_refunded)',
+  failover_succeeded: 'var(--status-partially_refunded)',
+  note: 'var(--text-muted)',
+};
+
+const KIND_LABEL = {
+  routing: 'routing decision',
+  attempt_failed: 'gateway attempt failed',
+  attempt_succeeded: 'gateway attempt succeeded',
+  failover_triggered: 'failover triggered',
+  failover_succeeded: 'failover succeeded',
+  note: 'note',
+};
+
 export function TransactionDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -12,6 +52,9 @@ export function TransactionDetail() {
   const [webhooks, setWebhooks] = useState([]);
   const [error, setError] = useState(null);
   const [refunding, setRefunding] = useState(false);
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundError, setRefundError] = useState(null);
 
   function load() {
     Promise.all([api.getTransaction(id), api.getEvents(id), api.getWebhooks(id)])
@@ -25,13 +68,33 @@ export function TransactionDetail() {
 
   useEffect(load, [id]);
 
-  async function handleRefund() {
+  const remainingRefundable = txn ? Number(txn.amount) - Number(txn.refunded_amount || 0) : 0;
+  const canRefund = txn && ['success', 'partially_refunded'].includes(txn.status) && remainingRefundable > 0;
+
+  function openRefundModal() {
+    setRefundAmount(String(remainingRefundable));
+    setRefundError(null);
+    setRefundModalOpen(true);
+  }
+
+  async function submitRefund() {
+    const amountNum = Number(refundAmount);
+    if (!Number.isInteger(amountNum) || amountNum <= 0) {
+      setRefundError('Enter a positive whole number.');
+      return;
+    }
+    if (amountNum > remainingRefundable) {
+      setRefundError(`Only ${remainingRefundable} is left to refund.`);
+      return;
+    }
     setRefunding(true);
+    setRefundError(null);
     try {
-      await api.refund(id, 'requested_from_dashboard');
+      await api.refund(id, { amount: amountNum, reason: 'requested_from_dashboard' });
+      setRefundModalOpen(false);
       load();
     } catch (err) {
-      setError(err.message);
+      setRefundError(err.message);
     } finally {
       setRefunding(false);
     }
@@ -84,6 +147,22 @@ export function TransactionDetail() {
               <span className="meta-value">{txn.gateway_reference || '—'}</span>
             </div>
             <div className="meta-item">
+              <span className="meta-label">Gateway used</span>
+              <span className="meta-value">{txn.gateway_used ? GATEWAY_LABELS[txn.gateway_used] || txn.gateway_used : '—'}</span>
+            </div>
+            {Number(txn.refunded_amount) > 0 && (
+              <>
+                <div className="meta-item">
+                  <span className="meta-label">Refunded</span>
+                  <span className="meta-value">{formatAmount(txn.refunded_amount, txn.currency)}</span>
+                </div>
+                <div className="meta-item">
+                  <span className="meta-label">Remaining refundable</span>
+                  <span className="meta-value">{formatAmount(remainingRefundable, txn.currency)}</span>
+                </div>
+              </>
+            )}
+            <div className="meta-item">
               <span className="meta-label">Idempotency key</span>
               <span className="meta-value">{txn.idempotency_key}</span>
             </div>
@@ -97,27 +176,65 @@ export function TransactionDetail() {
             </div>
           </div>
         </div>
-        {txn.status === 'success' && (
-          <button className="btn" onClick={handleRefund} disabled={refunding}>
-            {refunding ? 'Refunding…' : 'Refund'}
+        {canRefund && (
+          <button className="btn" onClick={openRefundModal} disabled={refunding}>
+            Refund
           </button>
         )}
       </div>
 
-      <h2 className="section-heading">State timeline</h2>
-      <div className="timeline">
-        {events.map((e) => (
-          <div className="timeline-item" key={e.id}>
-            <div className="timeline-dot" />
-            <div className="timeline-row">
-              <span className="mono" style={{ fontSize: 13 }}>
-                {e.from_status ? `${e.from_status} → ${e.to_status}` : `created as ${e.to_status}`}
-              </span>
-              <span className="timeline-time">{formatTime(e.created_at)}</span>
+      {refundModalOpen && (
+        <div className="modal-backdrop" onClick={() => !refunding && setRefundModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">Refund transaction</div>
+            <div className="field">
+              <label>Amount to refund (of {formatAmount(remainingRefundable, txn.currency)} remaining)</label>
+              <input
+                type="number"
+                min="1"
+                max={remainingRefundable}
+                value={refundAmount}
+                onChange={(e) => setRefundAmount(e.target.value)}
+              />
             </div>
-            {e.reason && <div className="timeline-reason">{e.reason}</div>}
+            {refundError && <div className="error-banner">{refundError}</div>}
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setRefundModalOpen(false)} disabled={refunding}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={submitRefund} disabled={refunding}>
+                {refunding
+                  ? 'Refunding…'
+                  : Number(refundAmount) === remainingRefundable
+                  ? 'Refund in full'
+                  : 'Refund partial amount'}
+              </button>
+            </div>
           </div>
-        ))}
+        </div>
+      )}
+
+      <h2 className="section-heading">Orchestration &amp; state timeline</h2>
+      <div className="timeline">
+        {events.map((e) => {
+          const { kind } = classifyEvent(e);
+          return (
+            <div className="timeline-item" key={e.id}>
+              <div className="timeline-dot" style={{ borderColor: DOT_COLOR_BY_KIND[kind] }} />
+              <div className="timeline-row">
+                <span className="mono" style={{ fontSize: 13 }}>
+                  {kind === 'transition'
+                    ? e.from_status
+                      ? `${e.from_status} → ${e.to_status}`
+                      : `created as ${e.to_status}`
+                    : KIND_LABEL[kind] || e.to_status}
+                </span>
+                <span className="timeline-time">{formatTime(e.created_at)}</span>
+              </div>
+              {e.reason && <div className="timeline-reason">{e.reason}</div>}
+            </div>
+          );
+        })}
       </div>
 
       <h2 className="section-heading">Webhook deliveries</h2>

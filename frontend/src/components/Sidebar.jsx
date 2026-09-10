@@ -8,7 +8,7 @@ export function Sidebar() {
   const [profileOpen, setProfileOpen] = useState(false);
 
   const name = user?.name || 'Admin';
-  const email = user?.email || 'admin@ledger.dev';
+  const email = user?.email || 'admin@payflux.dev';
 
   function handleLogout() {
     logout();
@@ -20,6 +20,9 @@ export function Sidebar() {
       <style>{`
         .sidebar {
           position: relative;
+          display: flex;
+          flex-direction: column;
+          height: 100vh;
         }
 
         .sidebar-profile {
@@ -128,7 +131,7 @@ export function Sidebar() {
 
         {/* Brand */}
         <div className="sidebar-brand">
-          Ledger
+          PayFlux
           <span>Payment orchestration</span>
         </div>
 
@@ -159,6 +162,15 @@ export function Sidebar() {
           }
         >
           Webhooks
+        </NavLink>
+
+        <NavLink
+          to="/app/routing"
+          className={({ isActive }) =>
+            `nav-link${isActive ? ' active' : ''}`
+          }
+        >
+          Routing
         </NavLink>
 
         <NavLink

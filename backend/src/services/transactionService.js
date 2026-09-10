@@ -85,6 +85,101 @@ async function incrementRetryCount(transactionId) {
   );
 }
 
+/**
+ * Writes an audit-only row to transaction_events for something that
+ * happened during gateway processing (an attempt, a retry, a failover)
+ * without actually changing the transaction's status -- from_status and
+ * to_status are both set to the status the transaction is already in.
+ *
+ * This deliberately bypasses the guarded transition() in stateMachine.js:
+ * "gateway_a attempt 2 failed" isn't a state transition, it's a note in
+ * the same audit trail. Reusing transaction_events (rather than a new
+ * table) means the existing GET /transactions/:id/events endpoint and
+ * the dashboard's timeline view show retries and failovers for free.
+ */
+async function logOrchestrationEvent(transactionId, status, reason) {
+  await pool.query(
+    `INSERT INTO transaction_events (transaction_id, from_status, to_status, reason)
+     VALUES ($1, $2, $2, $3)`,
+    [transactionId, status, reason]
+  );
+}
+
+class RefundExceedsBalanceError extends Error {
+  constructor(remaining) {
+    super(`Refund amount exceeds the remaining refundable balance (${remaining})`);
+    this.name = 'RefundExceedsBalanceError';
+    this.statusCode = 400;
+  }
+}
+
+class InvalidRefundAmountError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'InvalidRefundAmountError';
+    this.statusCode = 400;
+  }
+}
+
+/**
+ * Processes a (full or partial) refund atomically: locks the row,
+ * validates the amount against what's left to refund, decides whether
+ * this refund fully settles the balance (-> 'refunded') or leaves some
+ * remaining (-> 'partially_refunded'), and writes the new refunded_amount
+ * + status + audit event all in one DB transaction.
+ *
+ * @param {string} transactionId
+ * @param {number|undefined} amount - amount to refund, in the smallest
+ *   currency unit. Omitted/undefined means "refund whatever remains".
+ * @param {string} reason
+ */
+async function refundTransaction(transactionId, amount, reason = 'merchant_requested') {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `SELECT * FROM transactions WHERE id = $1 FOR UPDATE`,
+      [transactionId]
+    );
+    if (rows.length === 0) {
+      const err = new Error('Transaction not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    const txn = rows[0];
+    const remaining = Number(txn.amount) - Number(txn.refunded_amount);
+
+    const refundAmount = amount == null ? remaining : Number(amount);
+    if (!Number.isInteger(refundAmount) || refundAmount <= 0) {
+      throw new InvalidRefundAmountError('Refund amount must be a positive integer (smallest currency unit)');
+    }
+    if (refundAmount > remaining) {
+      throw new RefundExceedsBalanceError(remaining);
+    }
+
+    const event = refundAmount === remaining ? 'refund' : 'partialRefund';
+    const nextStatus = transition(txn.status, event); // throws InvalidTransitionError if not success/partially_refunded
+
+    const newRefundedAmount = Number(txn.refunded_amount) + refundAmount;
+    const { rows: updatedRows } = await client.query(
+      `UPDATE transactions SET status = $1, refunded_amount = $2 WHERE id = $3 RETURNING *`,
+      [nextStatus, newRefundedAmount, transactionId]
+    );
+
+    await client.query(
+      `INSERT INTO transaction_events (transaction_id, from_status, to_status, reason)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        transactionId,
+        txn.status,
+        nextStatus,
+        `${event === 'refund' ? 'Full' : 'Partial'} refund of ${refundAmount} (${reason}); ` +
+          `remaining refundable balance: ${Number(txn.amount) - newRefundedAmount}`,
+      ]
+    );
+
+    return updatedRows[0];
+  });
+}
+
 async function getTransaction(id) {
   const { rows } = await pool.query(`SELECT * FROM transactions WHERE id = $1`, [id]);
   return rows[0] || null;
@@ -147,4 +242,6 @@ async function getAnalytics(merchantId) {
 module.exports = {
   createTransaction, applyEvent, incrementRetryCount, getTransaction,
   listTransactions, getEvents, getAnalytics, DuplicateIdempotencyKeyError,
+  logOrchestrationEvent, refundTransaction,
+  RefundExceedsBalanceError, InvalidRefundAmountError,
 };

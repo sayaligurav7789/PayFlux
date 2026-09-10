@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 
 const AUTH_SECRET =
-  process.env.AUTH_SECRET || 'ledger-local-development-secret';
+  process.env.AUTH_SECRET || 'payflux-local-development-secret';
 
 function createToken(user) {
   const payload = {

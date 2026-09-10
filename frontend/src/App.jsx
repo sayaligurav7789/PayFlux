@@ -15,6 +15,7 @@ import { WebhookLog } from './pages/WebhookLog';
 import { IdempotencyDemo } from './pages/IdempotencyDemo';
 import { Analytics } from './pages/Analytics';
 import SystemHealth from './pages/SystemHealth';
+import { Routing } from './pages/Routing';
 
 export default function App() {
   return (
@@ -50,6 +51,11 @@ export default function App() {
             <Route
               path="webhooks"
               element={<WebhookLog />}
+            />
+
+            <Route
+              path="routing"
+              element={<Routing />}
             />
 
             <Route

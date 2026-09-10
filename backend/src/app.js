@@ -6,6 +6,7 @@ const { merchantRateLimiter } = require('./middleware/rateLimiter');
 const transactionsRouter = require('./routes/transactions');
 const webhooksRouter = require('./routes/webhooks');
 const mockMerchantRouter = require('./routes/mockMerchant');
+const routingRouter = require('./routes/routing');
 const { InvalidTransitionError } = require('./services/stateMachine');
 const { metricsMiddleware, getSnapshot } = require('./middleware/metrics');
 const authRoutes = require('./routes/auth');
@@ -70,6 +71,8 @@ function createApp() {
   app.use('/transactions', requireApiKey, merchantRateLimiter, transactionsRouter);
 
   app.use('/webhooks', requireApiKey, merchantRateLimiter, webhooksRouter);
+
+  app.use('/routing', requireApiKey, merchantRateLimiter, routingRouter);
 
   // Centralized error handler
   app.use((err, req, res, next) => {

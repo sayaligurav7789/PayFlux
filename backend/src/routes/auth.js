@@ -8,12 +8,12 @@ const {
 
 const router = express.Router();
 
-const DEMO_EMAIL = 'admin@ledger.dev';
+const DEMO_EMAIL = 'admin@payflux.dev';
 const DEMO_PASSWORD = 'password123';
 const DEMO_NAME = 'Admin';
 const DEMO_ROLE = 'Administrator';
 
-const PASSWORD_SALT = 'ledger-demo-salt';
+const PASSWORD_SALT = 'payflux-demo-salt';
 
 function hashPassword(password) {
   return crypto.scryptSync(

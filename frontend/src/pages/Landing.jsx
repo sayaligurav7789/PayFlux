@@ -27,7 +27,7 @@ export function Landing() {
   return (
     <div className="landing">
       <div className="landing-nav">
-        <span className="landing-nav-brand">Ledger</span>
+        <span className="landing-nav-brand">PayFlux</span>
         <button className="btn btn-sm" onClick={() => navigate('/app')}>
           Open dashboard →
         </button>

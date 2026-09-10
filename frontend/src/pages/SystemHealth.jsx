@@ -1,4 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
+import { api } from '../api';
+
+const GATEWAY_LABELS = { gateway_a: 'Gateway A', gateway_b: 'Gateway B' };
 
 const INSTANCES = [
   { id: 'api1', label: 'API-1', port: 4001 },
@@ -53,6 +56,7 @@ export default function SystemHealth() {
   const [instances, setInstances] = useState({});
   const [checking, setChecking] = useState(false);
   const [lastChecked, setLastChecked] = useState(null);
+  const [gatewayHealth, setGatewayHealth] = useState(null);
 
   const runCheck = useCallback(async () => {
     setChecking(true);
@@ -74,6 +78,16 @@ export default function SystemHealth() {
     setInstances(Object.fromEntries(results.map((r) => [r.id, r])));
     setLastChecked(new Date());
     setChecking(false);
+
+    // Gateway health is served from Postgres (gateway_attempts), not
+    // per-instance memory, so a single call gives the true picture
+    // regardless of which of the three API instances answers it.
+    try {
+      const health = await api.getGatewayHealth();
+      setGatewayHealth(health.gateways);
+    } catch {
+      setGatewayHealth(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -182,6 +196,26 @@ export default function SystemHealth() {
           }
           ok={!gatewaySample || gatewaySample.successRatePercent >= 80}
         />
+      </div>
+
+      <h2 className="section-heading">Payment gateways</h2>
+      <div className="feature-grid" style={{ marginBottom: 28 }}>
+        {['gateway_a', 'gateway_b'].map((gatewayId) => {
+          const g = gatewayHealth?.[gatewayId];
+          const healthy = !g || g.totalRequests === 0 || g.successRatePercent >= 80;
+          return (
+            <ServiceCard
+              key={gatewayId}
+              title={GATEWAY_LABELS[gatewayId]}
+              statusLine={
+                g && g.totalRequests > 0
+                  ? `${g.successRatePercent}% success · ${g.avgLatencyMs}ms avg · ${g.totalRequests} requests · ${g.failoversTriggered} failovers`
+                  : 'No calls yet'
+              }
+              ok={healthy}
+            />
+          );
+        })}
       </div>
 
       <h2 className="section-heading">API instances</h2>

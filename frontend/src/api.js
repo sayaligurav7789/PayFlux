@@ -123,11 +123,32 @@ export const api = {
   // REFUND
   // =========================
 
-  refund: (id, reason) =>
+  refund: (id, { amount, reason } = {}) =>
     request(`/transactions/${id}/refund`, {
       method: 'POST',
       body: JSON.stringify({
+        amount,
         reason,
       }),
+    }),
+
+  // =========================
+  // ROUTING & GATEWAY HEALTH
+  // =========================
+
+  getRoutingConfig: () => request('/routing/config'),
+
+  updateRoutingConfig: ({ strategy, weightGatewayA, weightGatewayB }) =>
+    request('/routing/config', {
+      method: 'PUT',
+      body: JSON.stringify({ strategy, weightGatewayA, weightGatewayB }),
+    }),
+
+  getGatewayHealth: () => request('/routing/health'),
+
+  forceGatewayFailure: (gatewayId, enabled) =>
+    request(`/routing/simulate/${gatewayId}/force-failure`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
     }),
 };
